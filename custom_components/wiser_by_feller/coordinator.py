@@ -16,6 +16,7 @@ from aiowiserbyfeller import (
     Load,
     Scene,
     Sensor,
+    SmartButton,
     SystemFlag,
     UnauthorizedUser,
     UnsuccessfulRequest,
@@ -43,7 +44,9 @@ _LOGGER = logging.getLogger(__name__)
 
 def get_unique_id(device: Device, load: Load | None) -> str:
     """Return a unique id for a given device / load combination."""
-    return device.id if load is None else f"{load.device}_{load.channel}"
+    return (
+        device.id if load is None else f"{load.device}_{load.channel}"
+    )  # TODO: Has Smart Button not a channel?
 
 
 class WiserCoordinator(DataUpdateCoordinator):
@@ -68,6 +71,7 @@ class WiserCoordinator(DataUpdateCoordinator):
         self._api = api
         self._options = options
         self._loads = None
+        self._smbs = None
         self._states = None
         self._devices = None
         self._device_ids_by_serial = None
@@ -87,6 +91,11 @@ class WiserCoordinator(DataUpdateCoordinator):
     def loads(self) -> dict[int, Load] | None:
         """A list of loads of devices configured in the Wiser by Feller ecosystem (Wiser eSetup app or Wiser Home app)."""
         return self._loads
+
+    @property
+    def smbs(self) -> dict[int, SmartButton] | None:
+        """A list of Smart Buttons of devices configured in the Wiser by Feller ecosystem (Wiser eSetup app or Wiser Home app)."""
+        return self._smbs
 
     @property
     def states(self) -> dict[int, dict] | None:
@@ -238,6 +247,10 @@ class WiserCoordinator(DataUpdateCoordinator):
                 async with asyncio.timeout(10):
                     await self.async_update_loads()
 
+            if self._smbs is None:
+                async with asyncio.timeout(10):
+                    await self.async_update_smb()
+
             if self._rooms is None:
                 async with asyncio.timeout(10):
                     await self.async_update_rooms()
@@ -327,6 +340,11 @@ class WiserCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "Websocket westgroup data update received: %s", data["westgroup"]
             )
+        elif "smb" in data:
+            _LOGGER.debug(
+                "Websocket Smart Button data update received: %s", data["smb"]
+            )
+            self._states[data["smb"]["id"]] = data["smb"]
         else:
             _LOGGER.debug("Unsupported websocket data update received: %s", data)
 
@@ -338,6 +356,13 @@ class WiserCoordinator(DataUpdateCoordinator):
         loads = await self._api.async_get_used_loads()
         self._loads = {load.id: load for load in loads}
         self._sync_unknown_type_issues(loads, "load", extra_log_attrs=["sub_type"])
+
+    async def async_update_smb(self) -> None:
+        """Update Wiser device Smart Button from µGateway."""
+        _LOGGER.debug("Attempting to update device Smart Button from µGateway...")
+        smbs = await self._api.async_get_smart_buttons()
+        self._smbs = {smb.id: smb for smb in smbs}
+        # self._sync_unknown_type_issues(smbs, "smb", extra_log_attrs=["sub_type"])
 
     async def async_update_devices(self) -> None:
         """Update Wiser devices from µGateway."""
@@ -410,7 +435,11 @@ class WiserCoordinator(DataUpdateCoordinator):
             else {}
         )
 
-        self._states = loads | sensors | hvac_groups
+        smbs = {
+            smb.id: smb.raw_data for smb in await self._api.async_get_smart_buttons()
+        }
+
+        self._states = loads | sensors | hvac_groups | smbs
 
     async def async_update_jobs(self) -> None:
         """Update Wiser jobs from µGateway."""
