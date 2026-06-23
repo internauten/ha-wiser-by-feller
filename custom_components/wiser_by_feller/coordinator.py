@@ -344,7 +344,7 @@ class WiserCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "Websocket Smart Button data update received: %s", data["smb"]
             )
-            self._states[data["smb"]["id"]] = data["smb"]
+            # self._states[data["smb"]["id"]] = data["smb"]
         else:
             _LOGGER.debug("Unsupported websocket data update received: %s", data)
 
@@ -439,7 +439,7 @@ class WiserCoordinator(DataUpdateCoordinator):
             smb.id: smb.raw_data for smb in await self._api.async_get_smart_buttons()
         }
 
-        self._states = loads | sensors | hvac_groups | smbs
+        self._states = loads | sensors | hvac_groups
 
     async def async_update_jobs(self) -> None:
         """Update Wiser jobs from µGateway."""
