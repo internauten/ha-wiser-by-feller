@@ -344,7 +344,7 @@ class WiserCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "Websocket Smart Button data update received: %s", data["smb"]
             )
-            # self._states[data["smb"]["id"]] = data["smb"]
+            self._states[data["smb"]["id"]] = data["smb"]
         else:
             _LOGGER.debug("Unsupported websocket data update received: %s", data)
 
