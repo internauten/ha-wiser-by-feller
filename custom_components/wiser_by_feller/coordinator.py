@@ -100,6 +100,8 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
         self._smart_button_callbacks: dict[int, list[Callable[[dict], None]]] = {}
         self._ws = Websocket(host, token, _LOGGER)
         self._ws_was_idle = False
+        self._ws_started = False
+        self._ws_subscribed = False
 
     def subscribe_smart_button(
         self, smart_button_id: int, callback_fn: Callable[[dict], None]
@@ -500,7 +502,7 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
                     self._ws_was_idle = True
                 await self.ws_close()
                 self._ws.reset_error_count()
-                self._ws.init()
+                self.ws_init()
             elif self._ws_was_idle:
                 _LOGGER.info("WebSocket connection to µGateway re-established.")
                 self._ws_was_idle = False
@@ -519,10 +521,27 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
     async def ws_close(self) -> None:
         """Close the WebSocket connection if it exists."""
         await self._ws.async_close()
+        self._ws_started = False
 
     def ws_init(self) -> None:
-        """Set up websocket with µGateway to receive load updates."""
-        self._ws.subscribe(self.ws_update_data)
+        """Set up websocket with µGateway to receive load updates.
+
+        Guarded against repeat calls: aiowiserbyfeller's Websocket.init() spawns
+        a new self-reconnecting task each time, and its async_close() cannot stop
+        it (the library never stores the connection it opens). A second task
+        would deliver every message twice.
+        """
+        if self._ws_started:
+            _LOGGER.debug("WebSocket already started, skipping duplicate init")
+            return
+
+        if not self._ws_subscribed:
+            # Websocket.subscribe() appends unconditionally, so subscribing on
+            # every reconnect would invoke the handler once per past connect.
+            self._ws.subscribe(self.ws_update_data)
+            self._ws_subscribed = True
+
+        self._ws_started = True
         self._ws.init()
         # WebSocket reconnection is handled in _async_update_data()
 

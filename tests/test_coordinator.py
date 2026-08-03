@@ -638,6 +638,62 @@ async def test_smart_buttons_fetched_only_once(coordinator, mock_api):
     assert mock_api.async_get_smart_buttons.await_count == 1
 
 
+# ── websocket lifecycle ───────────────────────────────────────────────────────
+
+
+def test_ws_init_connects_once(coordinator):
+    """The first ws_init() subscribes and opens the connection."""
+    coordinator.ws_init()
+
+    coordinator._ws.subscribe.assert_called_once_with(coordinator.ws_update_data)
+    coordinator._ws.init.assert_called_once()
+
+
+def test_ws_init_is_idempotent(coordinator):
+    """A second ws_init() must not open a duplicate connection.
+
+    Websocket.init() spawns an independent, self-reconnecting task that
+    async_close() cannot stop, so a second one would double every message.
+    """
+    coordinator.ws_init()
+    coordinator.ws_init()
+
+    assert coordinator._ws.init.call_count == 1
+    assert coordinator._ws.subscribe.call_count == 1
+
+
+async def test_ws_init_reconnects_after_close(coordinator):
+    """After ws_close(), ws_init() may open a new connection again."""
+    coordinator.ws_init()
+    await coordinator.ws_close()
+    coordinator.ws_init()
+
+    assert coordinator._ws.init.call_count == 2
+
+
+async def test_ws_reconnect_does_not_resubscribe(coordinator):
+    """Reconnecting must not register the handler a second time.
+
+    Websocket.subscribe() appends unconditionally, so a repeat subscription
+    would invoke the handler once per past connect.
+    """
+    coordinator.ws_init()
+    await coordinator.ws_close()
+    coordinator.ws_init()
+
+    assert coordinator._ws.subscribe.call_count == 1
+
+
+async def test_idle_websocket_is_reconnected(coordinator, mock_api):
+    """An idle websocket is closed and reopened during the refresh."""
+    coordinator.ws_init()
+    coordinator._ws.is_idle.return_value = True
+
+    await coordinator._async_update_data()
+
+    assert coordinator._ws.init.call_count == 2
+
+
 async def test_ws_idle_logs_warning_once(coordinator, mock_api, caplog):
     """WebSocket idle triggers a warning only on the first detection, not every poll."""
     coordinator._ws.is_idle.return_value = True

@@ -14,7 +14,10 @@ them as automation triggers like any other Home Assistant button.
 ## The entities
 
 For every smart button reported by `GET /api/smartbuttons`, the integration
-creates one event entity, e.g. `event.living_room_dimmer_smart_button_3`.
+creates one event entity named after the button's id, e.g.
+`event.living_room_dimmer_smart_button_80`. The id is unique across the whole
+installation, so buttons stay distinguishable even when several devices share
+the same name — which is common for scene switches.
 
 | Attribute | Description |
 |---|---|
@@ -68,7 +71,7 @@ automation:
   - alias: "Smart button toggles lamp"
     triggers:
       - trigger: state
-        entity_id: event.living_room_dimmer_smart_button_3
+        entity_id: event.living_room_dimmer_smart_button_80
         attribute: event_type
         to: click
     actions:
@@ -96,3 +99,67 @@ automation:
         target:
           entity_id: alarm_control_panel.home
 ```
+
+## Appendix: duplicate WebSocket messages
+
+While testing smart buttons we found that the integration processed **every**
+WebSocket message twice — smart button presses as well as load state updates.
+The cause is unrelated to smart buttons; they only made it visible, because a
+button press is a discrete event that is easy to count.
+
+### Diagnosis
+
+A second WebSocket client connected to the µGateway independently of Home
+Assistant received each press exactly once, while the Home Assistant log showed
+two entries a millisecond apart:
+
+```
+18:55:10 >>> SMB {"smb": {"action": "press", "type": "button", "id": "80"}}   ← gateway sent once
+
+18:55:10.977 DEBUG ... Websocket smart button event received: {...'id': '80'}  ← HA processed twice
+18:55:10.978 DEBUG ... Websocket smart button event received: {...'id': '80'}
+```
+
+So the gateway was not at fault. `netstat` inside the Home Assistant container
+confirmed **two** established connections to the µGateway.
+
+### Root cause
+
+The config entry had been set up twice within one Home Assistant run. Each setup
+calls `ws_init()`, which calls `Websocket.init()` in aiowiserbyfeller, which
+spawns an independent `asyncio` task that reconnects on its own.
+
+The first task is never stopped, because `Websocket.async_close()` cannot close
+anything: `connect()` never assigns the connection it opens to `self._ws`, so
+the attribute stays `None` and the close is a no-op:
+
+```python
+# aiowiserbyfeller/websocket/websocket.py
+async def async_close(self) -> None:
+    if self._ws is not None:   # always None — connect() never sets it
+        await self._ws.close()
+```
+
+Two live tasks, one gateway message, two callback invocations.
+
+### The fix
+
+Since the flaw is in the library, the coordinator guards against triggering it.
+Two flags in [coordinator.py](../custom_components/wiser_by_feller/coordinator.py):
+
+- **`_ws_started`** makes `ws_init()` idempotent — a repeat call logs and
+  returns instead of spawning a second task. `ws_close()` clears the flag so a
+  deliberate reconnect still works.
+- **`_ws_subscribed`** guards the message handler registration.
+  `Websocket.subscribe()` appends unconditionally, so re-subscribing on every
+  reconnect would reintroduce the duplication through the back door.
+
+The reconnect path in `_async_update_data()` now goes through `ws_init()` rather
+than calling `Websocket.init()` directly, so it passes the same guard.
+
+Verified live: one connection instead of two, and each press processed exactly
+once.
+
+> [!NOTE]
+> The underlying library bug still exists. This integration works around it, but
+> `Websocket.async_close()` remains a no-op for any other consumer.
