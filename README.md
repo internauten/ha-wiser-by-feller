@@ -108,8 +108,7 @@ The integration automatically prompts you to re-connect if there is any authenti
 
 ## 🛣️ Roadmap
 Here's a couple of things that are on the roadmap for future releases:
-- Wiser system flag management #20
-- Template for [Micro-Python script](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/api_scripts.md) to trigger Home Assistant events. This way you could use Wiser scene buttons to trigger actions in Home Assistant. #25
+- Wiser system flag management [#20](https://github.com/Syonix/ha-wiser-by-feller/issues/20)
 
 ## 🛟 Frequently asked questions
 ### Setup error `Invalid API response: Device 00012345 has an empty field c.comm_ref!`

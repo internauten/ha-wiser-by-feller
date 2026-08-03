@@ -16,6 +16,15 @@ MIN_FIRMWARE_MANAGED_BUTTONS = (6, 0, 42)
 MIN_FIRMWARE_REFRESH_PROPERTIES = (6, 0, 40)
 
 EVENT_BUTTON = f"{DOMAIN}_button_event"
+
+# C-block hardware type categories (bits 9-14 of the C-block firmware ID, see
+# aiowiserbyfeller.util.parse_wiser_device_fwid) whose front module name fully
+# describes the device. For these, the actuator module name is omitted from the
+# device name, e.g. "Touch Thermostat" instead of
+# "Touch Thermostat (Thermostat Nebenstelle)".
+SELF_DESCRIBING_FRONT_HW_TYPES = {
+    0x09,  # Touch display fronts
+}
 EVENT_SMART_BUTTON = f"{DOMAIN}_smart_button_event"
 
 # Smart buttons (SMB) report the interaction kind in the "action" field of the
