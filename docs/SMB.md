@@ -21,8 +21,15 @@ the same name — which is common for scene switches.
 
 | Attribute | Description |
 |---|---|
-| `event_type` | `click` (short press), `press` (long press / held), `release` |
-| `type` | Interaction kind reported by the gateway script, e.g. `button` |
+| `event_type` | `press` — plus `click` and `release`, declared but unused (see below) |
+| `type` | Interaction kind reported by the gateway script, currently always `button` |
+
+> [!IMPORTANT]
+> Wiser currently reports a single action and a single type: `press` and
+> `button`. Every press — short or long — arrives as `press`, so you cannot
+> distinguish a tap from a hold. The entity also declares `click` and `release`
+> for forward compatibility, but no Wiser system emits them today. Match on
+> `press` in your automations.
 
 Smart buttons are inputs and have no room of their own. A button that sits on a
 device with loads is attached to that load's Home Assistant device, so no
@@ -64,6 +71,14 @@ Each press then pushes a message the integration understands:
 Installing and assigning the script is an advanced, gateway-side step that the
 integration does not automate.
 
+### Steps to create the script on the µGateway
+
+1. Open the µGateway in your browser.
+2. Go to **Scripts** and create a new file.
+3. Name it `ws_smb.py`.
+4. Paste the Python script above into it and save.
+5. Link it to every smart button you want to use.
+
 ## Example automation
 
 ```yaml
@@ -73,7 +88,7 @@ automation:
       - trigger: state
         entity_id: event.living_room_dimmer_smart_button_80
         attribute: event_type
-        to: click
+        to: press
     actions:
       - action: light.toggle
         target:
@@ -93,7 +108,7 @@ automation:
         event_type: wiser_by_feller_smart_button_event
         event_data:
           smart_button_id: 80
-          event: click
+          event: press
     actions:
       - action: alarm_control_panel.alarm_arm_away
         target:
