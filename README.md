@@ -97,6 +97,9 @@ Wiser by Feller devices have customizable status LEDs that can indicate load sta
 ### 🎛️ Button Events
 Physical button presses fire a Home Assistant event you can use in automations (click, long press, release). For detailed information, see the [Button Events documentation](docs/button-triggers.md).
 
+### 🔘 Smart Buttons (SMB)
+Smart buttons configured in your Wiser system appear as event entities, ready to be used as automation triggers. For detailed information, see the [Smart Button documentation](docs/SMB.md).
+
 ### 🕹️ System Flag
 Already configured system flags appear as switches in Home Assistant. Unfortunately currently there is no way to configure them other than via API. An integrated management of flags is planned (See #20).
 

@@ -56,6 +56,7 @@ def _coordinator_meta(coordinator: WiserCoordinator) -> dict[str, Any]:
             "hvac_groups": len(coordinator.hvac_groups or {}),
             "jobs": len(coordinator.jobs or {}),
             "managed_buttons": len(coordinator.managed_buttons or {}),
+            "smart_buttons": len(coordinator.smart_buttons or {}),
             "states": len(coordinator.states or {}),
             "system_flags": len(coordinator.system_flags or []),
         },
@@ -82,6 +83,9 @@ async def async_get_config_entry_diagnostics(
 
     managed_buttons_json = [
         button.raw_data for button in (coordinator.managed_buttons or {}).values()
+    ]
+    smart_buttons_json = [
+        button.raw_data for button in (coordinator.smart_buttons or {}).values()
     ]
     hvac_groups_json = [
         group.raw_data for group in (coordinator.hvac_groups or {}).values()
@@ -117,6 +121,7 @@ async def async_get_config_entry_diagnostics(
         "sensors": async_redact_data(sensors_json, TO_REDACT),
         "hvac_groups": async_redact_data(hvac_groups_json, TO_REDACT),
         "managed_buttons": async_redact_data(managed_buttons_json, TO_REDACT),
+        "smart_buttons": async_redact_data(smart_buttons_json, TO_REDACT),
     }
 
 
@@ -153,6 +158,14 @@ async def async_get_device_diagnostics(
             [
                 button.raw_data
                 for button in (coordinator.managed_buttons or {}).values()
+                if button.device == device_id
+            ],
+            TO_REDACT,
+        )
+        result["smart_buttons"] = async_redact_data(
+            [
+                button.raw_data
+                for button in (coordinator.smart_buttons or {}).values()
                 if button.device == device_id
             ],
             TO_REDACT,

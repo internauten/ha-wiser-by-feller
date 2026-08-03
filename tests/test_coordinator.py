@@ -86,6 +86,7 @@ def mock_api():
     api.async_get_loads_state = AsyncMock(return_value=[])
     api.async_get_system_health = AsyncMock(return_value=MOCK_GATEWAY_INFO)
     api.async_ping_device = AsyncMock(return_value=True)
+    api.async_get_smart_buttons = AsyncMock(return_value=[])
     return api
 
 
@@ -345,6 +346,104 @@ def test_ws_update_data_button_fires_bus_event(coordinator):
     )
 
 
+def test_ws_update_data_smb_fires_bus_event(coordinator):
+    """WebSocket 'smb' event is fired on the bus and does not touch state."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+
+    with patch.object(coordinator, "async_set_updated_data") as mock_update:
+        coordinator.ws_update_data(
+            {"smb": {"id": 80, "action": "press", "type": "button"}}
+        )
+
+    mock_update.assert_not_called()  # smart button events don't refresh entity state
+    coordinator.hass.bus.async_fire.assert_called_once_with(
+        "wiser_by_feller_smart_button_event",
+        {
+            "config_entry_id": "abc123",
+            "smart_button_id": 80,
+            "event": "press",
+            "type": "button",
+        },
+    )
+
+
+def test_ws_update_data_smb_notifies_subscriber(coordinator):
+    """Subscribers registered for a smart button ID receive its events."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+    subscriber = MagicMock()
+    coordinator.subscribe_smart_button(80, subscriber)
+
+    coordinator.ws_update_data({"smb": {"id": 80, "action": "click", "type": "button"}})
+
+    subscriber.assert_called_once_with(
+        {"smart_button_id": 80, "event": "click", "type": "button"}
+    )
+
+
+def test_ws_update_data_smb_only_notifies_matching_subscriber(coordinator):
+    """Events are only dispatched to subscribers of the reporting button."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+    other = MagicMock()
+    coordinator.subscribe_smart_button(21, other)
+
+    coordinator.ws_update_data({"smb": {"id": 80, "action": "click"}})
+
+    other.assert_not_called()
+
+
+def test_unsubscribe_smart_button_stops_notifications(coordinator):
+    """The returned unsubscribe callable detaches the subscriber again."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+    subscriber = MagicMock()
+    unsubscribe = coordinator.subscribe_smart_button(80, subscriber)
+    unsubscribe()
+
+    coordinator.ws_update_data({"smb": {"id": 80, "action": "click"}})
+
+    subscriber.assert_not_called()
+    assert coordinator._smart_button_callbacks == {}
+
+
+def test_ws_update_data_smb_coerces_string_id(coordinator):
+    """Gateway scripts may send the button ID as a string; it is normalized to int."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+    subscriber = MagicMock()
+    coordinator.subscribe_smart_button(80, subscriber)
+
+    coordinator.ws_update_data({"smb": {"id": "80", "action": "click"}})
+
+    subscriber.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"id": 80},  # missing action
+        {"action": "click"},  # missing id
+        {"id": "left", "action": "click"},  # non-numeric id
+    ],
+)
+def test_ws_update_data_smb_ignores_incomplete_payloads(coordinator, payload):
+    """Incomplete or malformed smart button payloads are ignored."""
+    coordinator._states = {}
+    coordinator.config_entry = MagicMock(entry_id="abc123")
+    coordinator.hass = MagicMock()
+
+    coordinator.ws_update_data({"smb": payload})
+
+    coordinator.hass.bus.async_fire.assert_not_called()
+
+
 def test_ws_update_data_noop_when_states_none(coordinator):
     """ws_update_data returns early when _states is not yet populated."""
     coordinator._states = None
@@ -493,6 +592,50 @@ def test_resolve_button_fields_scene_none_when_button_has_no_job(coordinator):
     coordinator._rooms = {}
     coordinator._scenes = {1: _make_scene_for_coord(job_id=100)}
     assert coordinator.resolve_managed_button_fields(1)["scene_name"] is None
+
+
+# ── smart buttons ─────────────────────────────────────────────────────────────
+
+
+async def test_update_smart_buttons_keyed_by_id(coordinator, mock_api):
+    """Smart buttons fetched from the µGateway are indexed by their ID."""
+    button = MagicMock()
+    button.id = 80
+    mock_api.async_get_smart_buttons.return_value = [button]
+
+    await coordinator.async_update_smart_buttons()
+
+    assert coordinator.smart_buttons == {80: button}
+
+
+async def test_update_smart_buttons_skips_missing_ids(coordinator, mock_api):
+    """Smart buttons without an ID cannot be addressed and are dropped."""
+    button = MagicMock()
+    button.id = None
+    mock_api.async_get_smart_buttons.return_value = [button]
+
+    await coordinator.async_update_smart_buttons()
+
+    assert coordinator.smart_buttons == {}
+
+
+async def test_smart_button_failure_does_not_fail_update(coordinator, mock_api, caplog):
+    """A failing smart button request is logged but doesn't abort the refresh."""
+    mock_api.async_get_smart_buttons.side_effect = UnsuccessfulRequest("nope")
+
+    with caplog.at_level(logging.WARNING):
+        await coordinator._async_update_data()
+
+    assert coordinator.smart_buttons == {}
+    assert any("smart buttons" in r.message.lower() for r in caplog.records)
+
+
+async def test_smart_buttons_fetched_only_once(coordinator, mock_api):
+    """Smart buttons are static config and are not re-fetched on every poll."""
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+
+    assert mock_api.async_get_smart_buttons.await_count == 1
 
 
 async def test_ws_idle_logs_warning_once(coordinator, mock_api, caplog):

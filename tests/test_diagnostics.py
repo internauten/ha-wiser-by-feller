@@ -48,6 +48,19 @@ def _make_button_with_raw(button_id=1, device="000004d7"):
     return button
 
 
+def _make_smart_button_with_raw(button_id=80, device="000004d7", channel=2):
+    button = MagicMock()
+    button.id = button_id
+    button.device = device
+    button.raw_data = {
+        "id": button_id,
+        "job": 34,
+        "device": device,
+        "channel": channel,
+    }
+    return button
+
+
 def _make_with_raw(obj_id, raw):
     item = MagicMock()
     item.id = obj_id
@@ -81,6 +94,7 @@ def _build_coordinator(entry):
         1: _make_button_with_raw(1, "000004d7"),
         2: _make_button_with_raw(2, "deadbeef"),
     }
+    coord.smart_buttons = {80: _make_smart_button_with_raw(80, "000004d7")}
     return coord
 
 
@@ -144,15 +158,18 @@ async def test_config_entry_diagnostics_includes_extra_sections(
         "jobs",
         "hvac_groups",
         "managed_buttons",
+        "smart_buttons",
     ):
         assert key in result
 
     # The coordinator meta section carries runtime/capability info and counts.
     assert "counts" in result["coordinator"]
     assert result["coordinator"]["counts"]["managed_buttons"] == 2
+    assert result["coordinator"]["counts"]["smart_buttons"] == 1
 
     # Every managed button is present at the config-entry level.
     assert len(result["managed_buttons"]) == 2
+    assert len(result["smart_buttons"]) == 1
 
 
 async def test_config_entry_diagnostics_states_excludes_sensors(
@@ -286,6 +303,29 @@ async def test_device_diagnostics_includes_only_own_buttons(hass, mock_config_en
     # Only button 1 belongs to device 000004d7; button 2 is on another device.
     assert len(result["managed_buttons"]) == 1
     assert result["managed_buttons"][0]["id"] == 1
+
+
+async def test_device_diagnostics_includes_only_own_smart_buttons(
+    hass, mock_config_entry
+):
+    """Regular device → smart_buttons limited to buttons on that device."""
+    coord = _build_coordinator(mock_config_entry)
+    coord.smart_buttons = {
+        80: _make_smart_button_with_raw(80, "000004d7"),
+        81: _make_smart_button_with_raw(81, "deadbeef"),
+    }
+    mock_config_entry.runtime_data = coord
+    mock_config_entry.add_to_hass(hass)
+
+    device_entry = MagicMock()
+    device_entry.name = "Living Room Dimmer"
+    device_entry.identifiers = {(DOMAIN, "000004d7_0")}
+    device_entry.json_repr = '{"name": "Living Room Dimmer", "identifiers": []}'
+
+    result = await async_get_device_diagnostics(hass, mock_config_entry, device_entry)
+
+    assert len(result["smart_buttons"]) == 1
+    assert result["smart_buttons"][0]["id"] == 80
 
 
 async def test_device_diagnostics_gateway_includes_health(hass, mock_config_entry):

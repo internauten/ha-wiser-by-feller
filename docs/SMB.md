@@ -1,43 +1,37 @@
-# Smart Button (SMB) Integration
+# 🔘 Smart Buttons (SMB)
 
-Die Smart Buttons (SMB) von Wiser by Feller fehlen in dieser Integration. Darum sollen diese hinzugefügt werden.
+Smart Buttons are buttons in your Wiser installation that don't switch a load
+directly — they run a **job** stored on the µGateway. The integration reads them
+from the gateway and exposes each one as an **event entity**, so you can use
+them as automation triggers like any other Home Assistant button.
 
-## SMB's holen
+> [!IMPORTANT]
+> Smart buttons do **not** report presses on their own. You have to install a
+> small gateway script that pushes the press over the WebSocket connection — see
+> [Enabling press events](#enabling-press-events) below. Without it, the
+> entities are created but stay empty.
 
-Request: GET /api/smartbuttons
-Response:
+## The entities
 
-```json
-{
-  "data": [
-    {
-      "id": 21,
-      "job": 34,
-      "device": "0000abed",
-      "channel": 2
-    },
-    {
-      "id": 24,
-      "job": 34,
-      "device": "0000abed",
-      "channel": 3
-    },
-    {
-      "id": 80,
-      "job": 34,
-      "device": "0000d012",
-      "channel": 2
-    }
-  ],
-  "status": "success"
-}
-```
+For every smart button reported by `GET /api/smartbuttons`, the integration
+creates one event entity, e.g. `event.living_room_dimmer_smart_button_3`.
 
-## Status update by Websocket
+| Attribute | Description |
+|---|---|
+| `event_type` | `click` (short press), `press` (long press / held), `release` |
+| `type` | Interaction kind reported by the gateway script, e.g. `button` |
 
-OOB SMB's senden keine status aktualisierungen über die Websockets. Darum wird ein Script und ein Job erstellt der den SM's zugeordnet wird.
+Smart buttons are inputs and have no room of their own. A button that sits on a
+device with loads is attached to that load's Home Assistant device, so no
+duplicate device shows up for the same piece of hardware.
 
-Das Script:
+## Enabling press events
+
+Out of the box, smart buttons send no WebSocket updates. As described in the
+[Wiser API documentation](https://github.com/Feller-AG/wiser-api/issues/40), a
+script on the µGateway can push arbitrary WebSocket messages. Install the
+following script and assign it as a job to the smart buttons you want to use:
+
 ```python
 import websockets
 import uasyncio
@@ -52,22 +46,53 @@ def onButtonEvent(*argv):
     loop.run_until_complete(ws_task(argv))
 ```
 
-Dieses Script wird als Job alllen SMB's zugeordnet.
-
-Dieser Job sendet folgendes an den Websocket:
+Each press then pushes a message the integration understands:
 
 ```json
 {
-  'smb': {
-    'id': 80,
-    'action': 'press',
-    'type': 'button'
+  "smb": {
+    "id": 80,
+    "action": "press",
+    "type": "button"
   }
 }
+```
 
-## Implementierung in Home Assistant Custom Component wiser_by_feller
+Installing and assigning the script is an advanced, gateway-side step that the
+integration does not automate.
 
-Es soll als Event (Platform.EVENT) implementiert werden. Zudem gbt es im aiowiserbyfeller eine Klasse SmartButton. Die Implementierung soll sich annhand der anderen Entitäten wie z.B. light orientieren. Light implementiert die Loads vom Typ WiserOnOffEntity.
+## Example automation
 
+```yaml
+automation:
+  - alias: "Smart button toggles lamp"
+    triggers:
+      - trigger: state
+        entity_id: event.living_room_dimmer_smart_button_3
+        attribute: event_type
+        to: click
+    actions:
+      - action: light.toggle
+        target:
+          entity_id: light.lamp
+```
 
+Every press is additionally fired on the Home Assistant event bus as
+`wiser_by_feller_smart_button_event`, carrying `smart_button_id`, `event`,
+`type` and `config_entry_id`. Use it if you prefer a raw event trigger, or to
+discover a button's id in **Developer Tools → Events**:
 
+```yaml
+automation:
+  - alias: "Smart button arms alarm"
+    triggers:
+      - trigger: event
+        event_type: wiser_by_feller_smart_button_event
+        event_data:
+          smart_button_id: 80
+          event: click
+    actions:
+      - action: alarm_control_panel.alarm_arm_away
+        target:
+          entity_id: alarm_control_panel.home
+```

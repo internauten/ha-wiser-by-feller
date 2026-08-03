@@ -89,6 +89,20 @@
         "name": "Identifizieren"
       }
     },
+    "event": {
+      "smart_button": {
+        "name": "Smart Button {id}",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "click": "Klick",
+              "press": "Gedrückt",
+              "release": "Losgelassen"
+            }
+          }
+        }
+      }
+    },
     "sensor": {
       "rssi": {
         "name": "RSSI"

@@ -16,3 +16,8 @@ MIN_FIRMWARE_MANAGED_BUTTONS = (6, 0, 42)
 MIN_FIRMWARE_REFRESH_PROPERTIES = (6, 0, 40)
 
 EVENT_BUTTON = f"{DOMAIN}_button_event"
+EVENT_SMART_BUTTON = f"{DOMAIN}_smart_button_event"
+
+# Smart buttons (SMB) report the interaction kind in the "action" field of the
+# WebSocket payload pushed by the gateway script (see docs/SMB.md).
+SMART_BUTTON_EVENT_TYPES = ["click", "press", "release"]

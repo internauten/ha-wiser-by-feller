@@ -132,6 +132,7 @@ def mock_coordinator(mock_config_entry, mock_gateway):
 
     # Sync methods
     coord.ws_init = MagicMock()
+    coord.subscribe_smart_button = MagicMock(return_value=lambda: None)
 
     # Data stores — start empty; tests populate as needed
     coord.loads = {}
@@ -142,6 +143,7 @@ def mock_coordinator(mock_config_entry, mock_gateway):
     coord.jobs = {}
     coord.sensors = {}
     coord.managed_buttons = {}
+    coord.smart_buttons = {}
     coord.hvac_groups = {}
     coord.system_flags = []
     coord.system_health = MOCK_SYSTEM_HEALTH

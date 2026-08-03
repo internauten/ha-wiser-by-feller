@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import timedelta
 import logging
 from types import MappingProxyType
@@ -17,6 +18,7 @@ from aiowiserbyfeller import (
     Load,
     Scene,
     Sensor,
+    SmartButton,
     SystemFlag,
     UnauthorizedUser,
     UnsuccessfulRequest,
@@ -39,6 +41,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     DOMAIN,
     EVENT_BUTTON,
+    EVENT_SMART_BUTTON,
     HA_BLUE,
     LED_OFF_COLOR,
     MIN_FIRMWARE_MANAGED_BUTTONS,
@@ -92,9 +95,25 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
         self._gateway: Any = None
         self._gateway_info: dict[str, Any] | None = None
         self._managed_buttons: dict[int, Any] | None = None
+        self._smart_buttons: dict[int, Any] | None = None
         self._findme_button_future: asyncio.Future | None = None
+        self._smart_button_callbacks: dict[int, list[Callable[[dict], None]]] = {}
         self._ws = Websocket(host, token, _LOGGER)
         self._ws_was_idle = False
+
+    def subscribe_smart_button(
+        self, smart_button_id: int, callback_fn: Callable[[dict], None]
+    ) -> Callable[[], None]:
+        """Register a callback for smart button events and return an unsubscribe function."""
+        callbacks = self._smart_button_callbacks.setdefault(smart_button_id, [])
+        callbacks.append(callback_fn)
+
+        def _unsubscribe() -> None:
+            callbacks.remove(callback_fn)
+            if not callbacks:
+                self._smart_button_callbacks.pop(smart_button_id, None)
+
+        return _unsubscribe
 
     @property
     def loads(self) -> dict[int, Load] | None:
@@ -168,6 +187,11 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
     def managed_buttons(self) -> dict[int, Button] | None:
         """A dict of managed (registered) buttons, keyed by button ID."""
         return self._managed_buttons
+
+    @property
+    def smart_buttons(self) -> dict[int, SmartButton] | None:
+        """A dict of smart buttons (SMB), keyed by smart button ID."""
+        return self._smart_buttons
 
     @property
     def api_host(self) -> str:
@@ -291,6 +315,12 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
         _LOGGER.debug("Attempting to update managed buttons from µGateway...")
         buttons = await self._api.async_get_managed_buttons()
         self._managed_buttons = {btn.id: btn for btn in buttons if btn.id is not None}
+
+    async def async_update_smart_buttons(self) -> None:
+        """Update smart buttons (SMB) from µGateway."""
+        _LOGGER.debug("Attempting to update smart buttons from µGateway...")
+        buttons = await self._api.async_get_smart_buttons()
+        self._smart_buttons = {btn.id: btn for btn in buttons if btn.id is not None}
 
     async def async_find_button(self) -> dict:
         """Activate find-me mode and wait for a physical button press."""
@@ -445,6 +475,14 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
                     except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Failed to load managed buttons: %s", err)
 
+            if self._smart_buttons is None:
+                self._smart_buttons = {}
+                try:
+                    async with asyncio.timeout(10):
+                        await self.async_update_smart_buttons()
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Failed to load smart buttons: %s", err)
+
             async with asyncio.timeout(10):
                 await self.async_update_states()
 
@@ -547,6 +585,36 @@ class WiserCoordinator(DataUpdateCoordinator[None]):
                     },
                 )
             return  # button events don't update entity state
+        elif "smb" in data:
+            # Smart button (SMB) presses, pushed by the gateway script described in
+            # docs/SMB.md. Consumed by the event platform and fired on the HA bus.
+            smb = data["smb"]
+            _LOGGER.debug("Websocket smart button event received: %s", smb)
+            smb_id = smb.get("id")
+            action = smb.get("action")
+            if smb_id is None or action is None:
+                _LOGGER.debug("Ignoring incomplete smart button event: %s", smb)
+                return
+            try:
+                smb_id = int(smb_id)
+            except (TypeError, ValueError):
+                _LOGGER.debug(
+                    "Ignoring smart button event with non-numeric id: %s", smb
+                )
+                return
+            event_data = {
+                "smart_button_id": smb_id,
+                "event": action,
+                "type": smb.get("type"),
+            }
+            if self.config_entry is not None:
+                self.hass.bus.async_fire(
+                    EVENT_SMART_BUTTON,
+                    {"config_entry_id": self.config_entry.entry_id, **event_data},
+                )
+            for callback_fn in list(self._smart_button_callbacks.get(smb_id, [])):
+                callback_fn(event_data)
+            return  # smart button events don't update entity state
         else:
             _LOGGER.debug("Unsupported websocket data update received: %s", data)
 
