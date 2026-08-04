@@ -21,15 +21,15 @@ the same name — which is common for scene switches.
 
 | Attribute | Description |
 |---|---|
-| `event_type` | `press` — plus `click` and `release`, declared but unused (see below) |
-| `type` | Interaction kind reported by the gateway script, currently always `button` |
+| `action` | `click` the Button |
+| `type` | Interaction kind reported by the gateway script, currently always `play` |
 
 > [!IMPORTANT]
-> Wiser currently reports a single action and a single type: `press` and
-> `button`. Every press — short or long — arrives as `press`, so you cannot
-> distinguish a tap from a hold. The entity also declares `click` and `release`
+> Wiser currently reports a single action and a single type: `click` and
+> `play`. Every press — short or long — arrives as `click`, so you cannot
+> distinguish a tap from a hold. The entity also declares `press` and `release`
 > for forward compatibility, but no Wiser system emits them today. Match on
-> `press` in your automations.
+> `click` in your automations.
 
 Smart buttons are inputs and have no room of their own. A button that sits on a
 device with loads is attached to that load's Home Assistant device, so no
